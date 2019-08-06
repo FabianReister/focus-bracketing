@@ -14,6 +14,9 @@ class BracketingRunner(object):
     "List of images created during focus bracketing. They are stored on the camera and can be downloaded."
     file_paths = list()
 
+    "Number of steps the focus motor will perform between two images"
+    focus_drive_step = 50
+
     def __init__(self):
         self.connect()
         self.configure()
@@ -56,7 +59,7 @@ class BracketingRunner(object):
 
         self.camera.set_config(cfg)
 
-    def perform_focus_step(self, step=50):
+    def perform_focus_step(self):
         """
         The focus is shifted by applying a fixed number of focus steps.
 
@@ -64,12 +67,12 @@ class BracketingRunner(object):
         :return:
         """
 
-        assert isinstance(step, Number)
+        assert isinstance(self.focus_drive_step, Number)
 
         cfg = self.camera.get_config()
         # set-config /main/actions/manualfocusdrive 10
         focus_drive_config = cfg.get_child_by_name('manualfocusdrive')
-        focus_drive_config.set_value(step)
+        focus_drive_config.set_value(self.focus_drive_step)
         self.camera.set_config(cfg)
 
     def perform_focus_bracketing(self):
