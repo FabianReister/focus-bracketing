@@ -1,23 +1,32 @@
-import gphoto2 as gp
 import logging
 import os
 from numbers import Number
+from time import sleep
+
+import click
+import gphoto2 as gp
+from progressbar import progressbar, streams
 
 
-class BracketingRunner(object):
-    camera: gp.Camera = None
-    context: gp.Context = None
+class BracketingRunner:
+    camera: gp.Camera
+    context: gp.Context
 
     "Number of images that will be created"
-    n_images: int = 20
+    n_images: int
 
     "List of images created during focus bracketing. They are stored on the camera and can be downloaded."
     file_paths = list()
 
     "Number of steps the focus motor will perform between two images"
-    focus_drive_step = 50
+    focus_drive_step: int
 
-    def __init__(self):
+    def __init__(self, focus_drive_step: int, n_images: int, out_dir: str):
+        # params
+        self.focus_drive_step = focus_drive_step
+        self.n_images = n_images
+        self.out_dir = out_dir
+
         self.connect()
         self.configure()
 
@@ -80,18 +89,32 @@ class BracketingRunner(object):
 
         self.file_paths.clear()
 
-        for _ in range(self.n_images):
+        logging.info("Waiting 5 minutes to reduce vibration")
+        sleep(5*60.)
+
+        for _ in progressbar(range(self.n_images)):
             self.perform_focus_step()
-            file_path = gp.check_result(gp.gp_camera_capture(self.camera, gp.GP_CAPTURE_IMAGE, self.context))
+            file_path = gp.check_result(
+                gp.gp_camera_capture(
+                    self.camera,
+                    gp.GP_CAPTURE_IMAGE,
+                    self.context,
+                ))
             self.file_paths.append(file_path)
 
-    def download_images(self, path='/tmp'):
+    def download_images(self):
         for file_path in self.file_paths:
             # print('Camera file path: {0}/{1}'.format(file_path.folder, file_path.name))
-            target = os.path.join(path, file_path.name)
-            logging.info('Copying image to', target)
-            camera_file = gp.check_result(gp.gp_camera_file_get(
-                self.camera, file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL))
+            target = os.path.join(self.out_dir, file_path.name)
+            logging.info(f"Copying image to {target}")
+            camera_file = gp.check_result(
+                gp.gp_camera_file_get(
+                    self.camera,
+                    file_path.folder,
+                    file_path.name,
+                    gp.GP_FILE_TYPE_NORMAL,
+                ))
+
             gp.check_result(gp.gp_file_save(camera_file, target))
 
         self.file_paths.clear()
@@ -101,10 +124,24 @@ class BracketingRunner(object):
         gp.gp_camera_exit(self.camera)
 
 
-if __name__ == "__main__":
+@click.command()
+@click.option("-o", "--out-dir", type=click.Path(exists=True), required=True)
+@click.option("--images", 'n_images', type=int, default=100)
+@click.option("--focus_drive_step", type=int, default=10)
+def main(out_dir, n_images, focus_drive_step):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
-    callback_obj = gp.check_result(gp.use_python_logging())
+    streams.flush()
+    gp.check_result(gp.use_python_logging())
 
-    bracketing = BracketingRunner()
+    bracketing = BracketingRunner(
+        focus_drive_step=focus_drive_step,
+        n_images=n_images,
+        out_dir=out_dir,
+    )
+
     bracketing.perform_focus_bracketing()
     bracketing.download_images()
+
+
+if __name__ == "__main__":
+    main()

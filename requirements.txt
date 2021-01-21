@@ -1,1 +1,2 @@
-gphoto2
+gphoto2~=2.2.4
+click~=7.1.2
