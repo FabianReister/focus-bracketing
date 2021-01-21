@@ -6,7 +6,7 @@ These images can then be combined into a single image with a wider focus range.
 
 ## Installation
 
-    sudo apt install gphoto2
+    sudo apt install gphoto2 hugin-tools enfuse
     
     pip install -r requirements.txt
 
