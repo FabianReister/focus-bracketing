@@ -21,11 +21,12 @@ class BracketingRunner:
     "Number of steps the focus motor will perform between two images"
     focus_drive_step: int
 
-    def __init__(self, focus_drive_step: int, n_images: int, out_dir: str):
+    def __init__(self, focus_drive_step: int, n_images: int, out_dir: str, stabilization_time: int):
         # params
         self.focus_drive_step = focus_drive_step
         self.n_images = n_images
         self.out_dir = out_dir
+        self.stabilization_time = stabilization_time
 
         self.connect()
         self.configure()
@@ -50,21 +51,43 @@ class BracketingRunner:
 
         logging.info("Configuring camera")
         cfg = self.camera.get_config()
+        try:
+            viewfinder_config = cfg.get_child_by_name('viewfinder')
+            viewfinder_config.set_value(1)
+        except gp.GPhoto2Error:
+            pass
 
-        viewfinder_config = cfg.get_child_by_name('viewfinder')
-        viewfinder_config.set_value(1)
+        for cfg_child in cfg.get_children():
+            if cfg_child.get_name() == 'focusmode2':
+                self.camera_type = 'dslr'
+                # set-config /main/capturesettings/focusmode2=MF
+                focus_mode_config = cfg.get_child_by_name('focusmode2')
+                # TODO focus_mode_config.set_value("MF")
+                
+                # set-config /main/capturesettings/liveviewaffocus=Single-servo AF
+                focus_config = cfg.get_child_by_name('liveviewaffocus')
+                focus_config.set_value("Single-servo AF")
 
-        # set-config /main/capturesettings/focusmode2=MF
-        focus_mode_config = cfg.get_child_by_name('focusmode2')
-        # TODO focus_mode_config.set_value("MF")
+                # store images on SD card
+                capture_target = cfg.get_child_by_name('capturetarget')
+                capture_target.set_value("Memory card")
+                break
+            elif cfg_child.get_name() == 'capturesettings':
+                self.camera_type = 'sony_e'  # Sony e-mount (eg A7C)
+                # TODO start with autofocus?
+                focus_config = cfg.get_child_by_name('capturesettings').get_child_by_name('focusmode')
+                focus_config.set_value('Manual')
+                
+                capture_target = cfg.get_child_by_name('settings').get_child_by_name('capturetarget')
+                capture_target.set_value("card")
+                break
+        else:
+            raise(NotImplementedError('Manual focus for this type of camera'))
 
-        # set-config /main/capturesettings/liveviewaffocus=Single-servo AF
-        focus_config = cfg.get_child_by_name('liveviewaffocus')
-        focus_config.set_value("Single-servo AF")
+        
+        
 
-        # store images on SD card
-        capture_target = cfg.get_child_by_name('capturetarget')
-        capture_target.set_value("Memory card")
+
 
         self.camera.set_config(cfg)
 
@@ -79,8 +102,11 @@ class BracketingRunner:
         assert isinstance(self.focus_drive_step, Number)
 
         cfg = self.camera.get_config()
-        # set-config /main/actions/manualfocusdrive 10
-        focus_drive_config = cfg.get_child_by_name('manualfocusdrive')
+        if self.camera_type == 'dslr':
+            # set-config /main/actions/manualfocusdrive 10
+            focus_drive_config = cfg.get_child_by_name('manualfocusdrive')
+        elif self.camera_type == 'sony_e':
+            focus_drive_config = cfg.get_child_by_name('actions').get_child_by_name('manualfocus')
         focus_drive_config.set_value(self.focus_drive_step)
         self.camera.set_config(cfg)
 
@@ -89,18 +115,22 @@ class BracketingRunner:
 
         self.file_paths.clear()
 
-        logging.info("Waiting 5 minutes to reduce vibration")
-        sleep(5*60.)
+        logging.info(f"Waiting {self.stabilization_time} seconds to reduce vibration")
+        sleep(self.stabilization_time)
 
         for _ in progressbar(range(self.n_images)):
             self.perform_focus_step()
-            file_path = gp.check_result(
-                gp.gp_camera_capture(
-                    self.camera,
-                    gp.GP_CAPTURE_IMAGE,
-                    self.context,
-                ))
-            self.file_paths.append(file_path)
+            try:
+                proc_status = gp.gp_camera_capture(
+                        self.camera,
+                        gp.GP_CAPTURE_IMAGE,
+                        self.context,
+                )
+                file_path = gp.check_result(proc_status)
+                self.file_paths.append(file_path)
+            except gp.GPhoto2Error as e:
+                print(f'perform_focus_bracketing warning: something went wrong: {e}')
+
 
     def download_images(self):
         for file_path in self.file_paths:
@@ -126,9 +156,10 @@ class BracketingRunner:
 
 @click.command()
 @click.option("-o", "--out-dir", type=click.Path(exists=True), required=True)
-@click.option("--images", 'n_images', type=int, default=100)
-@click.option("--focus_drive_step", type=int, default=10)
-def main(out_dir, n_images, focus_drive_step):
+@click.option("-n", "--images", 'n_images', type=int, default=100, help='Number of images to capture')
+@click.option("-s", "--focus_drive_step", type=int, default=5, help='Focus step between shots')
+@click.option("--stabilization_time", type=float, default=5*60, help='Waiting time before start')
+def main(out_dir, n_images, focus_drive_step, stabilization_time):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
     streams.flush()
     gp.check_result(gp.use_python_logging())
@@ -137,6 +168,7 @@ def main(out_dir, n_images, focus_drive_step):
         focus_drive_step=focus_drive_step,
         n_images=n_images,
         out_dir=out_dir,
+        stabilization_time=stabilization_time
     )
 
     bracketing.perform_focus_bracketing()
