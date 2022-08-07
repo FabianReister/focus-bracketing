@@ -46,4 +46,6 @@ For customization, see
 
 ## Tested cameras
 
+* Nikon D5300
+* Nikon D5600
 * Nikon D850
