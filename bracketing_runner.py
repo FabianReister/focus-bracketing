@@ -36,7 +36,7 @@ class BracketingRunner:
         self.context = gp.gp_context_new()
         self.camera = gp.Camera()
         self.camera.init()
-
+       
     def configure(self):
         """
         Sets the camera parameters such that the focus bracketing can be performed
@@ -48,6 +48,10 @@ class BracketingRunner:
         Furthermore, the camera will store the images directly on the memory card to reduce latency.
 
         """
+        model_f = -1
+        model = self.camera.get_abilities().model
+        print(model)
+        model_f = model.find("Nikon DSC") # "D850"
 
         logging.info("Configuring camera")
         cfg = self.camera.get_config()
@@ -56,7 +60,6 @@ class BracketingRunner:
             viewfinder_config.set_value(1)
         except gp.GPhoto2Error:
             pass
-
         for cfg_child in cfg.get_children():
             if cfg_child.get_name() == 'focusmode2':
                 self.camera_type = 'dslr'
@@ -80,14 +83,18 @@ class BracketingRunner:
                 
                 capture_target = cfg.get_child_by_name('settings').get_child_by_name('capturetarget')
                 capture_target.set_value("card")
+                
+                if model_f != -1:
+                    self.camera_type = 'nikon_e'
+                    focus_config = cfg.get_child_by_name('liveviewaffocus')
+                    focus_config.set_value("Single-servo AF")
+                    
+                    capture_target = cfg.get_child_by_name('capturetarget')
+                    capture_target.set_value("Memory card")
+                
                 break
         else:
             raise(NotImplementedError('Manual focus for this type of camera'))
-
-        
-        
-
-
 
         self.camera.set_config(cfg)
 
@@ -107,6 +114,8 @@ class BracketingRunner:
             focus_drive_config = cfg.get_child_by_name('manualfocusdrive')
         elif self.camera_type == 'sony_e':
             focus_drive_config = cfg.get_child_by_name('actions').get_child_by_name('manualfocus')
+        elif self.camera_type == 'nikon_e':
+            focus_drive_config = cfg.get_child_by_name('manualfocusdrive')    
         focus_drive_config.set_value(self.focus_drive_step)
         self.camera.set_config(cfg)
 
